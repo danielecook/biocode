@@ -1,11 +1,52 @@
 from collections import defaultdict
 import gzip
+import re
 
+old_illumina_header = [("instrument", str),
+                       ("flowcell_lane", str),
+                       ("flowcell_number", int),
+                       None,  # x-tile
+                       None,  # y-tile
+                       ("index", str),
+                       ("pair", int)]
+
+illumina_header = [("instrument", str),
+                   ("run_id", int),
+                   ("flowcell_id", str),
+                   ("flowcell_lane", int),
+                   None,  # tile number
+                   None,  # x-tile
+                   None,  # y-tile
+                   ("pair", int),
+                   ("filtered", str),
+                   ("control_bits", int),
+                   None]  # index sequence
+
+def set_type(var, val):
+    if var == str:
+        return str(val)
+    elif var == int:
+        return int(val)
 
 class fastq:
-    # Simple class for reading fastq files and performing simple operations.
+    # Simple class for reading fastq files.
     def __init__(self, filename):
         self.filename = filename
+        # Get fastq information
+        header_lines = [x["info"] for x in self.read(100)]
+        header = re.split(r'(\:|#| )',header_lines[0])[::2]
+        if len(header) == 11:
+            self.instrument = header[0]
+            for attr, val in zip(illumina_header, header):
+                if attr is not None:
+                    val = set_type(attr[1], val) # Set variable type
+                    setattr(self, attr[0], val)
+
+
+        elif len(header) == 21:
+            pass
+        else:
+            raise Exception("Unknown header")
 
     def read(self, n=-1):
         """
@@ -19,7 +60,7 @@ class fastq:
                 dna["seq"] = f.next().strip()
                 f.next()
                 dna["qual"] = f.next().strip()
-                if linenum <= n or n == -1:
+                if linenum*4 <= n or n == -1:
                     yield dna
                 else:
                     break
