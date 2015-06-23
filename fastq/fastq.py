@@ -1,13 +1,14 @@
 from collections import defaultdict
 import gzip
 import re
+from itertools import groupby as g
 
 old_illumina_header = [("instrument", str),
-                       ("flowcell_lane", str),
+                       ("flowcell_lane", int),
                        ("flowcell_number", int),
                        None,  # x-tile
                        None,  # y-tile
-                       ("index", str),
+                       ("barcode",str),  # barcode - fetched later
                        ("pair", int)]
 
 illumina_header = [("instrument", str),
@@ -20,9 +21,17 @@ illumina_header = [("instrument", str),
                    ("pair", int),
                    ("filtered", str),
                    ("control_bits", int),
-                   None]  # index sequence
+                   ("barcode",str)]  # barcode/index sequence; fetched later.
+
+def most_common(L):
+    # Fetch most common item from a list.
+  try:
+    return max(g(sorted(L)), key=lambda(x, v):(len(list(v)),-L.index(x)))[0]
+  except:
+    return ""
 
 def set_type(var, val):
+    # Set variable types.
     if var == str:
         return str(val)
     elif var == int:
@@ -33,20 +42,33 @@ class fastq:
     def __init__(self, filename):
         self.filename = filename
         # Get fastq information
-        header_lines = [x["info"] for x in self.read(100)]
-        header = re.split(r'(\:|#| )',header_lines[0])[::2]
+        header_lines = [x["info"] for x in self.read(1)]
+        header = re.split(r'(\:|#|/| )',header_lines[0])[::2]
         if len(header) == 11:
-            self.instrument = header[0]
-            for attr, val in zip(illumina_header, header):
-                if attr is not None:
-                    val = set_type(attr[1], val) # Set variable type
-                    setattr(self, attr[0], val)
-
-
-        elif len(header) == 21:
-            pass
+            # Use new header format.
+            use_header = illumina_header
+        elif len(header) == 6:
+            # Use old header format.
+            use_header = old_illumina_header
+        elif len(header) == 7:
+            # Use old header and add pair if available.
+            use_header = old_illumina_header + ["pair"]
         else:
             raise Exception("Unknown header")
+        # Fetch index
+        index_loc = use_header.index(("barcode",str))
+        fetch_index = [re.split(r'(\:|#|/| )',x["info"])[::2][index_loc] for x in self.read(1000)]
+        self.barcode = most_common(fetch_index)
+
+        # Set remaining attributes.
+        for attr, val in zip(use_header, header):
+            if attr is not None:
+                val = set_type(attr[1], val) # Set variable type
+                setattr(self, attr[0], val)
+
+        # Fetch index
+        #line["index"] = most_common(index_set)
+
 
     def read(self, n=-1):
         """
@@ -60,7 +82,7 @@ class fastq:
                 dna["seq"] = f.next().strip()
                 f.next()
                 dna["qual"] = f.next().strip()
-                if linenum*4 <= n or n == -1:
+                if linenum < n or n == -1:
                     yield dna
                 else:
                     break
