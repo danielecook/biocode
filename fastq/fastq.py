@@ -107,7 +107,11 @@ class fastq:
             Iterate through gzipped fastq file and put
             yield sequence+info in dictionary.
         """
-        with gzip.open(self.filename, 'rb') as f:
+        if self.filename.endswith(".gz"):
+            open_file = gzip.open(self.filename, 'rb')
+        else:
+            open_file = open(self.filename, 'r') 
+        with open_file as f:
             dna = {}
             for linenum, line in enumerate(f):
                 dna["info"] = line.strip()
@@ -182,4 +186,5 @@ class fastq:
 x = fastq("../test/test1.fastq.gz")
 x = fastq("../test/test2.fastq.gz")
 x = fastq("../test/test3.fastq.gz")
-
+x = fastq("../test/test3.fastq")
+print x.header
