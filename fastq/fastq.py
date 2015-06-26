@@ -23,6 +23,9 @@ illumina_header = [("instrument", str),
                    ("control_bits", int),
                    ("barcode",str)]  # barcode/index sequence; fetched later.
 
+SRR_header = [('SRR',str)]
+
+
 def most_common(L):
     # Fetch most common item from a list.
   try:
@@ -44,6 +47,8 @@ class fastq:
         # Get fastq information
         header_lines = [x["info"] for x in self.read(1)]
         header = re.split(r'(\:|#|/| )',header_lines[0])[::2]
+        fetch_barcode = True
+
         if len(header) == 11:
             # Use new header format.
             use_header = illumina_header
@@ -53,17 +58,26 @@ class fastq:
         elif len(header) == 7:
             # Use old header and add pair if available.
             use_header = old_illumina_header + ["pair"]
+        elif header[0].startswith("@SRR"):
+            header = header[0].split(".")[0:1]
+            use_header = SRR_header
+            fetch_barcode = False
         else:
             raise Exception("Unknown header")
-        # Fetch index
-        index_loc = use_header.index(("barcode",str))
-        fetch_index = [re.split(r'(\:|#|/| )',x["info"])[::2][index_loc] for x in self.read(1000)]
-        self.barcode = most_common(fetch_index)
 
+        if fetch_barcode == True:
+            # Fetch index
+            index_loc = use_header.index(("barcode",str))
+            fetch_index = [re.split(r'(\:|#|/| )',x["info"])[::2][index_loc] for x in self.read(1000)]
+            self.barcode = most_common(fetch_index)
+
+
+        self.header = {}
         # Set remaining attributes.
         for attr, val in zip(use_header, header):
             if attr is not None:
                 val = set_type(attr[1], val) # Set variable type
+                self.header[attr[0]] = val
                 setattr(self, attr[0], val)
 
         # Fetch index
@@ -112,3 +126,30 @@ class fastq:
                     break
             count[len(needle_rep)/len(needle)-1] += 1
         return sorted(count.items())
+
+    def calculate_fastq_stats(self):
+        subprocess.check_output("""awk '((NR-2)%4==0){read=$1;
+                                    total++;count[read]++}
+                                    END{
+                                        for(read in count){
+                                            if(!max||count[read]>max) {
+                                                max=count[read];
+                                                maxRead=read};
+                                                if(count[read]==1){
+                                                    unique++
+                                                    }
+                                            };
+                                            print total,
+                                                  unique,
+                                                  unique*100/total,
+                                                  maxRead,
+                                                  count[maxRead],
+                                                  count[maxRead]*100/total}'""")
+
+
+
+
+x = fastq("../test/test.fastq.gz")
+
+print dir(x)
+print x.header
