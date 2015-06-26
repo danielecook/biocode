@@ -1,30 +1,52 @@
 from collections import defaultdict
 import gzip
 import re
+import subprocess
 from itertools import groupby as g
 
-old_illumina_header = [("instrument", str),
-                       ("flowcell_lane", int),
-                       ("flowcell_number", int),
+old_illumina_header = ["instrument",
+                       "flowcell_lane",
+                       "flowcell_number",
                        None,  # x-tile
                        None,  # y-tile
-                       ("barcode",str),  # barcode - fetched later
-                       ("pair", int)]
+                       "barcode",  # barcode - fetched later
+                       "pair"]
 
-illumina_header = [("instrument", str),
-                   ("run_id", int),
-                   ("flowcell_id", str),
-                   ("flowcell_lane", int),
+illumina_header = ["instrument",
+                   "run_id",
+                   "flowcell_id",
+                   "flowcell_lane",
                    None,  # tile number
                    None,  # x-tile
                    None,  # y-tile
-                   ("pair", int),
-                   ("filtered", str),
-                   ("control_bits", int),
-                   ("barcode",str)]  # barcode/index sequence; fetched later.
+                   "pair",
+                   "filtered",
+                   "control_bits",
+                   "barcode"]  # barcode/index sequence; fetched later.
 
-SRR_header = [('SRR',str)]
+SRR_header = ['SRR']
 
+stat_header = ["Total_Reads",
+         "Unique_Reads",
+         "Percent_Unique", 
+         "Most_Abundant_Sequence",
+         "Most_Abundant_Frequency",
+         "Percentage_Unique_fq"]
+
+def boolify(s):
+    if s == 'True':
+        return True
+    if s == 'False':
+        return False
+    raise ValueError("huh?")
+
+def autoconvert(s):
+    for fn in (boolify, int, float):
+        try:
+            return fn(s)
+        except ValueError:
+            pass
+    return s
 
 def most_common(L):
     # Fetch most common item from a list.
@@ -32,13 +54,6 @@ def most_common(L):
     return max(g(sorted(L)), key=lambda(x, v):(len(list(v)),-L.index(x)))[0]
   except:
     return ""
-
-def set_type(var, val):
-    # Set variable types.
-    if var == str:
-        return str(val)
-    elif var == int:
-        return int(val)
 
 class fastq:
     # Simple class for reading fastq files.
@@ -59,15 +74,18 @@ class fastq:
             # Use old header and add pair if available.
             use_header = old_illumina_header + ["pair"]
         elif header[0].startswith("@SRR"):
+            # Setup SRR Header
             header = header[0].split(".")[0:1]
             use_header = SRR_header
             fetch_barcode = False
         else:
-            raise Exception("Unknown header")
+            # If unknown header, enumerate
+            use_header = ["h" + str(x) for x in range(0,len(header))]
+            fetch_barcode = False
 
         if fetch_barcode == True:
             # Fetch index
-            index_loc = use_header.index(("barcode",str))
+            index_loc = use_header.index("barcode")
             fetch_index = [re.split(r'(\:|#|/| )',x["info"])[::2][index_loc] for x in self.read(1000)]
             self.barcode = most_common(fetch_index)
 
@@ -76,9 +94,9 @@ class fastq:
         # Set remaining attributes.
         for attr, val in zip(use_header, header):
             if attr is not None:
-                val = set_type(attr[1], val) # Set variable type
-                self.header[attr[0]] = val
-                setattr(self, attr[0], val)
+                val = autoconvert(val) # Set variable type
+                self.header[attr] = val
+                setattr(self, attr, val)
 
         # Fetch index
         #line["index"] = most_common(index_set)
@@ -128,28 +146,40 @@ class fastq:
         return sorted(count.items())
 
     def calculate_fastq_stats(self):
-        subprocess.check_output("""awk '((NR-2)%4==0){read=$1;
-                                    total++;count[read]++}
-                                    END{
-                                        for(read in count){
-                                            if(!max||count[read]>max) {
-                                                max=count[read];
-                                                maxRead=read};
-                                                if(count[read]==1){
-                                                    unique++
-                                                    }
-                                            };
-                                            print total,
-                                                  unique,
-                                                  unique*100/total,
-                                                  maxRead,
-                                                  count[maxRead],
-                                                  count[maxRead]*100/total}'""")
+        if self.filename.endswith(".fq"):
+            # Read if not zipped.
+            awk_read = "cat".format(**locals())
+        else:
+            # unzip
+            awk_read = "gzcat"
+        awk_one_liner =  """ awk '((NR-2)%4==0){ 
+                                read=$1;total++;count[read]++
+                             }
+                             END{
+                             for(read in count){
+                             if(!max||count[read]>max) {
+                                 max=count[read];
+                                 maxRead=read};
+                                 if(count[read]==1){
+                                    unique++
+                                 }
+                             };
+                             print total,
+                                   unique,
+                                   unique*100/total,
+                                   maxRead,
+                                   count[maxRead],
+                                   count[maxRead]*100/total}'"""
+        awk = awk_read + " " + self.filename + " | " + awk_one_liner
+        stats = subprocess.check_output([awk], shell=True)
+        stats = map(autoconvert,stats.strip().split(" "))
+        stats = dict(zip(stat_header, stats))
+        self.sequence_stats = stats
+        return stats
 
 
 
+x = fastq("../test/test1.fastq.gz")
+x = fastq("../test/test2.fastq.gz")
+x = fastq("../test/test3.fastq.gz")
 
-x = fastq("../test/test.fastq.gz")
-
-print dir(x)
-print x.header
