@@ -1,7 +1,12 @@
 # biocode
 Collection of scripts/utilities
 
-__/fasta/parse_fai.py__ - Utilities for working with genome references.
+__/fasta/fasta.py__ 
+
+Utilities for working with reference genomes. Fasta class with methods for retrieving sequences from samtools indexed referenced genomes.
+
+
+__/fasta/parse_fai.py__ - Parser for fasta index (__fai__) files.
 
 __/fastq/fastq.py__ - A python fastq object. 
 
